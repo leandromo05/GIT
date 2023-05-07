@@ -1,0 +1,28 @@
+git init
+git add .
+git commit -m "HolaMundo"
+git status
+git checkout -b development (-b crea rama)
+git checkout master
+git merge development
+git log (para ver los commits)
+git blame "archivo"
+git log --pretty=oneline
+git log --grap --oneline --decorate --all
+git branch -d "rama" (para borrar rama)
+git diff (rama)..(rama)
+git push (rama) (rama)
+git clone (direccion web)
+git fetch origin
+git init
+git push
+git pull
+
+
+COMANDOS PARA DESHACER CAMBIOS
+---------------------------------------------
+git checkout (numeros del commit)
+git checkout -b "nombre"
+
+git revert (rama)
+
