@@ -39,15 +39,28 @@ Resources:
   WordPressServer:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: !Ref IdImagen
+      ImageId: ami-02396cdd13e9a1257
       IamInstanceProfile: LabInstanceProfile
       SecurityGroupIds: 
         - Ref: SecurityGroup
-      InstanceType: !Ref TipoInstancia
+      InstanceType: t2.small
       KeyName: vockey
       Tags:
         - Key: Name
           Value: !Join [ "-", [!Ref AWS::StackName, !Ref AWS::AccountId ] ]
+          
+      UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash -xe
+            sudo dnf update && sudo dnf upgrade -y
+            sudo dnf install httpd -y && sudo service httpd start
+            sudo systemctl enable httpd
+            sudo dnf install mariadb105-server -y && sudo service mariadb start
+            sudo service mariadb start
+            sudo systemctl enable mariadb
+            sudo dnf install php php-devel -y
+            echo "<?php phpinfo();?>" | sudo tee /var/www/html/phpinfo.php &>/dev/null
+            /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource WordPressServer --region ${AWS::Region}
 
 Outputs:
   InstanceId:
