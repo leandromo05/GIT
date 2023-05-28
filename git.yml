@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Creacion de bucket
+Description: Creación de pila LAMP (Apache, MariaDB, PHP)
 Parameters:
   TipoInstancia:
     Type: String
@@ -10,10 +10,23 @@ Parameters:
       - "t2.medium"
       - "t2.large"
     Default: "t2.small"
+  DBName:
+    Type: String
+    Description: nombre bbsd
+    Default: wordpressdb
+  DBUser:
+    Type: String
+    Description: usuario
+    Default: admin
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Description: password
+    MinLength: 8
+    Default: Usuario1+
   IdImagen:
     Type: "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
     Default: "/aws/service/canonical/ubuntu/server/20.04/stable/current/amd64/hvm/ebs-gp2/ami-id"
-
 Resources:
   SecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -38,6 +51,10 @@ Resources:
           Value: !Join ["-", [ !Ref AWS::StackName, !Ref AWS::AccountId ] ]
   WordPressServer:
     Type: AWS::EC2::Instance
+    CreationPolicy:
+        ResourceSignal:
+            Timeout: PT7M
+            Count: 1
     Properties:
       ImageId: ami-02396cdd13e9a1257
       IamInstanceProfile: LabInstanceProfile
@@ -45,36 +62,76 @@ Resources:
         - Ref: SecurityGroup
       InstanceType: t2.small
       KeyName: vockey
-      Tags:
-        - Key: Name
-          Value: !Join [ "-", [!Ref AWS::StackName, !Ref AWS::AccountId ] ]
-          
       UserData:
           Fn::Base64: !Sub |
-            #!/bin/bash -xe
-            sudo dnf update && sudo dnf upgrade -y
-            sudo dnf install httpd -y && sudo service httpd start
+            #!/bin/bash
+            sudo dnf update -y
+            sudo dnf install httpd wget php-fpm php-mysqli php-json php8.1 php-devel
+            sudo dnf install -y mariadb105
             sudo systemctl enable httpd
-            sudo dnf install mariadb105-server -y && sudo service mariadb start
-            sudo service mariadb start
-            sudo systemctl enable mariadb
-            sudo dnf install php php-devel -y
-            echo "<?php phpinfo();?>" | sudo tee /var/www/html/phpinfo.php &>/dev/null
+            sudo dnf install wget php-mysqlnd httpd php-fpm php-mysqli mariadb105-server php-json php php-devel -y
+            wget https://wordpress.org/latest.tar.gz
+            tar -xzf latest.tar.gz
+            sudo systemctl start mariadb httpd
+            sudo mv /wordpress/* /var/www/html
+            sudo mysqladmin -u root password
+            sudo mysql -u leandro -pusuario -P ${WordPressDB.Endpoint.Port} -h ${WordPressDB.Endpoint.Address} -e "CREATE DATABASE `DBLeandro`;
+            CREATE USER 'Usuario'@'localhost' IDENTIFIED BY 'root';
+            GRANT ALL PRIVILEGES ON `WordpressLAMP`.* TO "Usuario"@"localhost";
+            FLUSH PRIVILEGES;
+            cp wordpress/wp-config-sample.php wordpress/wp-config.php
+            sed 's/NONE/ALLOW/3' wp-config.php
+            sed 's/username_here/Usuario' wp-config.php  
+            sed 's/password_here/usuario' wp-config.php
+            # Para que nadie pueda entrar sin la contraseña
+            mysql -e "UPDATE mysql.user SET Password = PASSWORD('CHANGEME') WHERE User = 'root'"
+            # Borrar los usuarios anónimos
+            mysql -e "DROP USER ''@'localhost'" 
+            # Nuestro hostname puede variar
+            mysql -e "DROP USER ''@'$(hostname)'"
+            # Borramos la bbsd por defecto
+            mysql -e "DROP DATABASE test"
+            # Guardar los cambios
+            mysql -e "FLUSH PRIVILEGES""
+            exit
             /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource WordPressServer --region ${AWS::Region}
-
+      Tags:
+        - Key: Name
+          Value: !Join [ "-", [ !Ref AWS::StackName, !Ref AWS::AccountId ] ]
+  SecurityGroupBBDD:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Grupo de seguridad para la base de datos
+        SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupName:
+            Ref: SecurityGroup
+  WordPressDB:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      DBInstanceIdentifier: Base-de-datos-RDS
+      DBName: !Ref DBName
+      DBInstanceClass: db.t2.micro
+      AllocatedStorage: 40
+      Engine: mariadb
+      EngineVersion: "10.4"
+      MasterUsername: !Ref DBUser
+      MasterUserPassword: !Ref DBPassword
+      VPCSecurityGroups:
+        - !GetAtt SecurityGroupBBDD.GroupId
 Outputs:
   InstanceId:
     Description: "Id Instancia EC2"
-    Value: AWS::StackId
+    Value: !Ref WordPressServer
     Export: 
       Name: Outputs
   ServerPublicIp:
     Description: "DNS"
     Value: !Sub 
-        - 'http::\\.${Domain}:80'
+        - 'http://${Domain}:80'
         - Domain: !GetAtt WordPressServer.PublicDnsName
     Export:
       Name: ServerPublicIp
-
     
-        
